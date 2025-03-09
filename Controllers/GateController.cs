@@ -23,17 +23,20 @@ namespace ParkIRC.Controllers
         private readonly IWebHostEnvironment _webHostEnvironment;
         private readonly ILogger<GateController> _logger;
         private readonly IPrinterService _printerService;
+        private readonly IIPCameraService _cameraService;
 
         public GateController(
             ApplicationDbContext context,
             IWebHostEnvironment webHostEnvironment,
             ILogger<GateController> logger,
-            IPrinterService printerService)
+            IPrinterService printerService,
+            IIPCameraService cameraService)
         {
             _context = context;
             _webHostEnvironment = webHostEnvironment;
             _logger = logger;
             _printerService = printerService;
+            _cameraService = cameraService;
         }
 
         // GET: Gate/Entry
@@ -42,36 +45,43 @@ namespace ParkIRC.Controllers
             return View();
         }
 
-        // POST: Gate/ProcessEntry
+        // POST: Gate/DetectVehicle
         [HttpPost]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> ProcessEntry([FromForm] VehicleEntryModel model, [FromForm] string base64Image)
+        public async Task<IActionResult> DetectVehicle()
         {
             try
             {
-                _logger.LogInformation($"Processing vehicle entry for {model.VehicleNumber}, Type: {model.VehicleType}");
-
-                // Check if vehicle is already parked
-                var existingVehicle = await _context.Vehicles
-                    .FirstOrDefaultAsync(v => v.VehicleNumber == model.VehicleNumber && v.IsParked);
-
-                if (existingVehicle != null)
+                bool isDetected = await _cameraService.IsVehicleDetected();
+                if (!isDetected)
                 {
-                    return Json(new { success = false, message = "Kendaraan sudah terparkir" });
+                    return Json(new { detected = false });
                 }
 
-                // Find available parking space
-                var parkingSpace = await FindOptimalParkingSpace(model.VehicleType);
-                if (parkingSpace == null)
-                {
-                    return Json(new { success = false, message = "Tidak ada slot parkir yang tersedia untuk jenis kendaraan ini" });
-                }
+                string? imagePath = await _cameraService.CaptureVehicleImage();
+                return Json(new { 
+                    detected = true,
+                    imagePath = imagePath
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error detecting vehicle");
+                return Json(new { detected = false, error = ex.Message });
+            }
+        }
 
-                // Save image if provided
-                string? photoPath = null;
-                if (!string.IsNullOrEmpty(base64Image))
+        // POST: Gate/ProcessEntry
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ProcessEntry([FromForm] string vehicleNumber, [FromForm] string vehicleType)
+        {
+            try
+            {
+                // Capture vehicle image using IP camera
+                string? imagePath = await _cameraService.CaptureVehicleImage();
+                if (string.IsNullOrEmpty(imagePath))
                 {
-                    photoPath = await SaveBase64Image(base64Image, "entry-photos");
+                    return Json(new { success = false, message = "Gagal mengambil foto kendaraan" });
                 }
 
                 // Get current shift
@@ -81,28 +91,32 @@ namespace ParkIRC.Controllers
                     return Json(new { success = false, message = "Tidak ada shift aktif saat ini" });
                 }
 
-                // Create new vehicle record
+                // Find optimal parking space
+                var parkingSpace = await FindOptimalParkingSpace(vehicleType);
+                if (parkingSpace == null)
+                {
+                    return Json(new { success = false, message = "Tidak ada tempat parkir yang tersedia" });
+                }
+
+                // Create vehicle record
                 var vehicle = new Vehicle
                 {
-                    VehicleNumber = model.VehicleNumber,
-                    VehicleType = model.VehicleType,
-                    DriverName = model.DriverName ?? string.Empty,
-                    PhoneNumber = model.PhoneNumber ?? string.Empty,
+                    VehicleNumber = vehicleNumber.ToUpper(),
+                    VehicleType = vehicleType,
                     EntryTime = DateTime.Now,
+                    EntryPhotoPath = imagePath,
                     IsParked = true,
-                    EntryPhotoPath = photoPath ?? string.Empty,
-                    ParkingSpaceId = parkingSpace.Id,
-                    ShiftId = currentShift.Id
+                    ParkingSpace = parkingSpace
                 };
 
-                // Generate barcode
+                // Generate barcode data and image
                 string barcodeData = GenerateBarcodeData(vehicle);
                 string barcodeImagePath = await GenerateAndSaveQRCode(barcodeData);
-                vehicle.BarcodeImagePath = barcodeImagePath;
 
-                // Update parking space
-                parkingSpace.IsOccupied = true;
-                parkingSpace.LastOccupiedTime = DateTime.Now;
+                if (string.IsNullOrEmpty(barcodeImagePath))
+                {
+                    return Json(new { success = false, message = "Gagal generate barcode" });
+                }
 
                 // Create parking ticket
                 var ticket = new ParkingTicket
@@ -147,7 +161,8 @@ namespace ParkIRC.Controllers
                     ticketNumber = ticket.TicketNumber,
                     entryTime = vehicle.EntryTime,
                     barcodeImageUrl = $"/images/barcodes/{Path.GetFileName(barcodeImagePath)}",
-                    printStatus = printSuccess
+                    printStatus = printSuccess,
+                    imagePath = imagePath
                 });
             }
             catch (Exception ex)

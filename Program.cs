@@ -93,6 +93,9 @@ try
     // Add printer service
     builder.Services.AddSingleton<IPrinterService, PrinterService>();
 
+    // Add IP camera service
+    builder.Services.AddSingleton<IIPCameraService, IPCameraService>();
+
     var app = builder.Build();
 
     // Global error handler
