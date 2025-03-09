@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ParkIRC.Models;
+using ParkIRC.Models.ViewModels;
 using ParkIRC.Data;
 using System;
 using System.Linq;
@@ -47,44 +48,20 @@ namespace ParkIRC.Controllers
         {
             try
             {
-                var today = DateTime.Today;
-                var weekStart = today.AddDays(-(int)today.DayOfWeek);
-                var monthStart = new DateTime(today.Year, today.Month, 1);
-
-                // Get all required data in parallel for better performance
-                var totalSpacesTask = _context.ParkingSpaces.CountAsync();
-                var availableSpacesTask = _context.ParkingSpaces.CountAsync(s => !s.IsOccupied);
-                var dailyRevenueTask = _context.ParkingTransactions
-                    .Where(t => t.PaymentTime.Date == today)
-                    .SumDecimalAsync(t => t.TotalAmount);
-                var weeklyRevenueTask = _context.ParkingTransactions
-                    .Where(t => t.PaymentTime.Date >= weekStart && t.PaymentTime.Date <= today)
-                    .SumDecimalAsync(t => t.TotalAmount);
-                var monthlyRevenueTask = _context.ParkingTransactions
-                    .Where(t => t.PaymentTime.Date >= monthStart && t.PaymentTime.Date <= today)
-                    .SumDecimalAsync(t => t.TotalAmount);
-                var recentActivityTask = GetRecentActivity();
-                var hourlyOccupancyTask = GetHourlyOccupancyData();
-                var vehicleDistributionTask = GetVehicleTypeDistribution();
-
-                await Task.WhenAll(
-                    totalSpacesTask, availableSpacesTask, dailyRevenueTask,
-                    weeklyRevenueTask, monthlyRevenueTask, recentActivityTask,
-                    hourlyOccupancyTask, vehicleDistributionTask
-                );
-
-                var dashboardData = new DashboardViewModel
+                var dashboardData = await GetDashboardData();
+                var statisticsData = new DashboardStatisticsViewModel
                 {
-                    TotalSpaces = await totalSpacesTask,
-                    AvailableSpaces = await availableSpacesTask,
-                    DailyRevenue = await dailyRevenueTask,
-                    WeeklyRevenue = await weeklyRevenueTask,
-                    MonthlyRevenue = await monthlyRevenueTask,
-                    RecentActivity = await recentActivityTask,
-                    HourlyOccupancy = await hourlyOccupancyTask,
-                    VehicleDistribution = await vehicleDistributionTask
+                    TotalSpaces = await _context.ParkingSpaces.CountAsync(),
+                    AvailableSpaces = await _context.ParkingSpaces.CountAsync(s => !s.IsOccupied),
+                    DailyRevenue = await GetDailyRevenue(),
+                    WeeklyRevenue = await GetWeeklyRevenue(),
+                    MonthlyRevenue = await GetMonthlyRevenue(),
+                    RecentActivity = await GetRecentActivity(),
+                    HourlyOccupancy = await GetHourlyOccupancyData(),
+                    VehicleDistribution = await GetVehicleTypeDistribution()
                 };
                 
+                ViewBag.Statistics = statisticsData;
                 return View(dashboardData);
             }
             catch (Exception ex)
@@ -96,6 +73,32 @@ namespace ParkIRC.Controllers
                     RequestId = HttpContext.TraceIdentifier
                 });
             }
+        }
+
+        private async Task<decimal> GetDailyRevenue()
+        {
+            var today = DateTime.Today;
+            return await _context.ParkingTransactions
+                .Where(t => t.PaymentTime.Date == today)
+                .SumAsync(t => t.TotalAmount);
+        }
+
+        private async Task<decimal> GetWeeklyRevenue()
+        {
+            var today = DateTime.Today;
+            var weekStart = today.AddDays(-(int)today.DayOfWeek);
+            return await _context.ParkingTransactions
+                .Where(t => t.PaymentTime.Date >= weekStart && t.PaymentTime.Date <= today)
+                .SumAsync(t => t.TotalAmount);
+        }
+
+        private async Task<decimal> GetMonthlyRevenue()
+        {
+            var today = DateTime.Today;
+            var monthStart = new DateTime(today.Year, today.Month, 1);
+            return await _context.ParkingTransactions
+                .Where(t => t.PaymentTime.Date >= monthStart && t.PaymentTime.Date <= today)
+                .SumAsync(t => t.TotalAmount);
         }
 
         private async Task<List<ParkingActivity>> GetRecentActivity()
@@ -150,15 +153,23 @@ namespace ParkIRC.Controllers
 
         private async Task<List<VehicleDistributionData>> GetVehicleTypeDistribution()
         {
-            return await _context.Vehicles
+            try
+            {
+                return await _context.Vehicles
                     .Where(v => v.IsParked)
-                .GroupBy(v => v.VehicleType ?? "Unknown")
-                .Select(g => new VehicleDistributionData
+                    .GroupBy(v => v.VehicleType ?? "Unknown")
+                    .Select(g => new VehicleDistributionData
                     {
                         Type = g.Key,
                         Count = g.Count()
                     })
-                .ToListAsync();
+                    .ToListAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting vehicle type distribution");
+                return new List<VehicleDistributionData>();
+            }
         }
 
         public IActionResult VehicleEntry()
@@ -791,31 +802,25 @@ namespace ParkIRC.Controllers
         private async Task<DashboardViewModel> GetDashboardData()
         {
             var today = DateTime.Today;
-            var weekStart = today.AddDays(-(int)today.DayOfWeek);
-            var monthStart = new DateTime(today.Year, today.Month, 1);
-
-            var totalSpaces = await _context.ParkingSpaces.CountAsync();
-            var availableSpaces = await _context.ParkingSpaces.CountAsync(s => !s.IsOccupied);
-            var dailyRevenue = await _context.ParkingTransactions
-                .Where(t => t.PaymentTime.Date == today)
-                .SumDecimalAsync(t => t.TotalAmount);
-            var weeklyRevenue = await _context.ParkingTransactions
-                .Where(t => t.PaymentTime.Date >= weekStart && t.PaymentTime.Date <= today)
-                .SumDecimalAsync(t => t.TotalAmount);
-            var monthlyRevenue = await _context.ParkingTransactions
-                .Where(t => t.PaymentTime.Date >= monthStart && t.PaymentTime.Date <= today)
-                .SumDecimalAsync(t => t.TotalAmount);
-
+            
             return new DashboardViewModel
             {
-                TotalSpaces = totalSpaces,
-                AvailableSpaces = availableSpaces,
-                DailyRevenue = dailyRevenue,
-                WeeklyRevenue = weeklyRevenue,
-                MonthlyRevenue = monthlyRevenue,
-                RecentActivity = await GetRecentActivity(),
-                HourlyOccupancy = await GetHourlyOccupancyData(),
-                VehicleDistribution = await GetVehicleTypeDistribution()
+                TotalVehicles = await _context.Vehicles.CountAsync(v => v.IsParked),
+                TotalIncome = await _context.ParkingTransactions.SumAsync(t => t.TotalAmount),
+                AvailableSpaces = await _context.ParkingSpaces.CountAsync(s => !s.IsOccupied),
+                ActiveOperators = await _context.Operators.CountAsync(o => o.IsActive),
+                CurrentShift = await _context.Shifts.FirstOrDefaultAsync(s => s.StartTime <= DateTime.Now && s.EndTime >= DateTime.Now),
+                DeviceStatus = new DeviceStatusViewModel
+                {
+                    EntranceGate = true,
+                    ExitGate = true,
+                    EntranceCamera = true,
+                    ExitCamera = true,
+                    EntrancePrinter = true,
+                    ExitPrinter = true,
+                    Server = true,
+                    Database = true
+                }
             };
         }
 

@@ -35,6 +35,7 @@ namespace ParkIRC.Models
         public string? EntryPhotoPath { get; set; }
         public string? ExitPhotoPath { get; set; }
         public string? BarcodeImagePath { get; set; }
+        public string? EntryCCTVPhotoPath { get; set; }
         
         public int? ParkingSpaceId { get; set; }
         

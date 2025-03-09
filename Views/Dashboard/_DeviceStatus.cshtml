@@ -1,0 +1,52 @@
+@model ParkIRC.Models.ViewModels.DeviceStatusViewModel
+
+<div class="row g-3" id="deviceStatus">
+    <div class="col-md-3 col-sm-6">
+        <div class="device-status @(Model.EntranceGate ? "active" : "inactive")">
+            <i class="fas fa-door-open"></i>
+            <span>Entrance Gate</span>
+        </div>
+    </div>
+    <div class="col-md-3 col-sm-6">
+        <div class="device-status @(Model.ExitGate ? "active" : "inactive")">
+            <i class="fas fa-door-closed"></i>
+            <span>Exit Gate</span>
+        </div>
+    </div>
+    <div class="col-md-3 col-sm-6">
+        <div class="device-status @(Model.EntranceCamera ? "active" : "inactive")">
+            <i class="fas fa-camera"></i>
+            <span>Entrance Camera</span>
+        </div>
+    </div>
+    <div class="col-md-3 col-sm-6">
+        <div class="device-status @(Model.ExitCamera ? "active" : "inactive")">
+            <i class="fas fa-video"></i>
+            <span>Exit Camera</span>
+        </div>
+    </div>
+    <div class="col-md-3 col-sm-6">
+        <div class="device-status @(Model.EntrancePrinter ? "active" : "inactive")">
+            <i class="fas fa-print"></i>
+            <span>Entrance Printer</span>
+        </div>
+    </div>
+    <div class="col-md-3 col-sm-6">
+        <div class="device-status @(Model.ExitPrinter ? "active" : "inactive")">
+            <i class="fas fa-print"></i>
+            <span>Exit Printer</span>
+        </div>
+    </div>
+    <div class="col-md-3 col-sm-6">
+        <div class="device-status @(Model.Server ? "active" : "inactive")">
+            <i class="fas fa-server"></i>
+            <span>Server</span>
+        </div>
+    </div>
+    <div class="col-md-3 col-sm-6">
+        <div class="device-status @(Model.Database ? "active" : "inactive")">
+            <i class="fas fa-database"></i>
+            <span>Database</span>
+        </div>
+    </div>
+</div> 

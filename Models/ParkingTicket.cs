@@ -22,6 +22,10 @@ namespace ParkIRC.Models
         
         public bool IsUsed { get; set; }
         
+        public bool IsProcessed { get; set; }
+        
+        public DateTime? ProcessTime { get; set; }
+        
         public int? VehicleId { get; set; }
         
         [ForeignKey("VehicleId")]

@@ -14,6 +14,7 @@ namespace ParkIRC.Services
         bool CheckPrinterStatus();
         string GetDefaultPrinter();
         List<string> GetAvailablePrinters();
+        Task<bool> PrintExitTicket(ExitTicket exitTicket, Vehicle vehicle);
     }
 
     public class PrinterService : IPrinterService
@@ -22,6 +23,7 @@ namespace ParkIRC.Services
         private readonly string _defaultPrinter;
         private const int GENERIC_WRITE = 0x40000000;
         private const int OPEN_EXISTING = 3;
+        private readonly PrintDocument _printDocument;
 
         [DllImport("kernel32.dll", SetLastError = true)]
         static extern IntPtr CreateFile(string lpFileName, uint dwDesiredAccess,
@@ -32,6 +34,7 @@ namespace ParkIRC.Services
         {
             _logger = logger;
             _defaultPrinter = GetDefaultPrinter();
+            _printDocument = new PrintDocument();
         }
 
         public async Task<bool> PrintTicket(ParkingTicket ticket)
@@ -167,6 +170,70 @@ namespace ParkIRC.Services
             {
                 _logger.LogError(ex, "Error getting available printers");
                 return new List<string>();
+            }
+        }
+
+        public async Task<bool> PrintExitTicket(ExitTicket exitTicket, Vehicle vehicle)
+        {
+            try
+            {
+                _printDocument.PrintPage += (sender, e) => PrintExitTicketHandler(sender, e, exitTicket, vehicle);
+                _printDocument.Print();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error printing exit ticket");
+                return false;
+            }
+        }
+
+        private void PrintExitTicketHandler(object sender, PrintPageEventArgs e, ExitTicket exitTicket, Vehicle vehicle)
+        {
+            try
+            {
+                // Setup fonts and brushes
+                var titleFont = new Font("Arial", 12, FontStyle.Bold);
+                var normalFont = new Font("Arial", 10);
+                var smallFont = new Font("Arial", 8);
+                var brush = new SolidBrush(Color.Black);
+                int y = 10;
+
+                // Print header
+                e.Graphics.DrawString("TIKET KELUAR PARKIR", titleFont, brush, 10, y);
+                y += 30;
+
+                // Print ticket info
+                e.Graphics.DrawString($"No. Tiket: {exitTicket.ExitTicketNumber}", normalFont, brush, 10, y);
+                y += 20;
+                e.Graphics.DrawString($"Plat Nomor: {vehicle.VehicleNumber}", normalFont, brush, 10, y);
+                y += 20;
+                e.Graphics.DrawString($"Jenis: {vehicle.VehicleType}", normalFont, brush, 10, y);
+                y += 20;
+                e.Graphics.DrawString($"Masuk: {vehicle.EntryTime:dd/MM/yyyy HH:mm}", normalFont, brush, 10, y);
+                y += 20;
+                e.Graphics.DrawString($"Durasi: {exitTicket.Duration.Hours} jam {exitTicket.Duration.Minutes} menit", normalFont, brush, 10, y);
+                y += 20;
+                e.Graphics.DrawString($"Biaya: Rp {exitTicket.Cost:#,##0}", normalFont, brush, 10, y);
+                y += 20;
+
+                // Print barcode
+                if (!string.IsNullOrEmpty(exitTicket.BarcodeImagePath))
+                {
+                    var barcodeImage = Image.FromFile(exitTicket.BarcodeImagePath);
+                    e.Graphics.DrawImage(barcodeImage, 10, y, 200, 100);
+                    y += 120;
+                }
+
+                // Print footer
+                e.Graphics.DrawString("Berlaku 30 menit setelah pembayaran", smallFont, brush, 10, y);
+                y += 15;
+                e.Graphics.DrawString("Simpan tiket ini untuk keluar", smallFont, brush, 10, y);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in PrintExitTicketHandler");
+                throw;
             }
         }
     }

@@ -1,1 +1,227 @@
- 
+@model ParkIRC.Models.ViewModels.DashboardViewModel
+@{
+    ViewData["Title"] = "Dashboard";
+}
+
+<div class="container-fluid">
+    <h1 class="mt-4">Dashboard</h1>
+
+    <!-- Summary Cards -->
+    <div class="row mt-4">
+        <div class="col-xl-3 col-md-6">
+            <div class="card bg-primary text-white mb-4">
+                <div class="card-body">
+                    <h4>@Model.TotalVehicles</h4>
+                    <div>Kendaraan Parkir</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-3 col-md-6">
+            <div class="card bg-success text-white mb-4">
+                <div class="card-body">
+                    <h4>Rp @Model.TotalIncome.ToString("N0")</h4>
+                    <div>Pendapatan Hari Ini</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-3 col-md-6">
+            <div class="card bg-info text-white mb-4">
+                <div class="card-body">
+                    <h4>@Model.AvailableSpaces</h4>
+                    <div>Slot Tersedia</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-3 col-md-6">
+            <div class="card bg-warning text-white mb-4">
+                <div class="card-body">
+                    <h4>@Model.ActiveOperators</h4>
+                    <div>Operator Aktif</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Device Status -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Status Perangkat</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <div class="device-status @(Model.DeviceStatus.EntranceGate ? "bg-success" : "bg-danger") text-white p-2 mb-2">
+                                Gate Masuk: @(Model.DeviceStatus.EntranceGate ? "Online" : "Offline")
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="device-status @(Model.DeviceStatus.ExitGate ? "bg-success" : "bg-danger") text-white p-2 mb-2">
+                                Gate Keluar: @(Model.DeviceStatus.ExitGate ? "Online" : "Offline")
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="device-status @(Model.DeviceStatus.EntranceCamera ? "bg-success" : "bg-danger") text-white p-2 mb-2">
+                                Kamera Masuk: @(Model.DeviceStatus.EntranceCamera ? "Online" : "Offline")
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="device-status @(Model.DeviceStatus.ExitCamera ? "bg-success" : "bg-danger") text-white p-2 mb-2">
+                                Kamera Keluar: @(Model.DeviceStatus.ExitCamera ? "Online" : "Offline")
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="device-status @(Model.DeviceStatus.EntrancePrinter ? "bg-success" : "bg-danger") text-white p-2 mb-2">
+                                Printer Masuk: @(Model.DeviceStatus.EntrancePrinter ? "Online" : "Offline")
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="device-status @(Model.DeviceStatus.ExitPrinter ? "bg-success" : "bg-danger") text-white p-2 mb-2">
+                                Printer Keluar: @(Model.DeviceStatus.ExitPrinter ? "Online" : "Offline")
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="device-status @(Model.DeviceStatus.Server ? "bg-success" : "bg-danger") text-white p-2 mb-2">
+                                Server: @(Model.DeviceStatus.Server ? "Online" : "Offline")
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="device-status @(Model.DeviceStatus.Database ? "bg-success" : "bg-danger") text-white p-2 mb-2">
+                                Database: @(Model.DeviceStatus.Database ? "Online" : "Offline")
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="row mt-4">
+        <div class="col-xl-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Okupansi Parkir</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="occupancyChart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Statistik per Jam</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="hourlyChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        // Update device status every minute
+        function updateDeviceStatus() {
+            $.get('/Dashboard/GetDeviceStatus', function(data) {
+                // Update UI with new status
+                updateDeviceStatusUI(data);
+            });
+        }
+
+        // Update charts every 5 minutes
+        function updateCharts() {
+            updateOccupancyChart();
+            updateHourlyChart();
+        }
+
+        function updateOccupancyChart() {
+            $.get('/Dashboard/GetOccupancyStats', function(data) {
+                // Update occupancy chart
+                if (occupancyChart) {
+                    occupancyChart.data.labels = data.map(x => x.vehicleType);
+                    occupancyChart.data.datasets[0].data = data.map(x => x.occupied);
+                    occupancyChart.data.datasets[1].data = data.map(x => x.available);
+                    occupancyChart.update();
+                }
+            });
+        }
+
+        function updateHourlyChart() {
+            $.get('/Dashboard/GetHourlyStats', function(data) {
+                // Update hourly chart
+                if (hourlyChart) {
+                    hourlyChart.data.labels = data.map(x => x.hour + ':00');
+                    hourlyChart.data.datasets[0].data = data.map(x => x.count);
+                    hourlyChart.data.datasets[1].data = data.map(x => x.income);
+                    hourlyChart.update();
+                }
+            });
+        }
+
+        // Initialize charts
+        let occupancyChart = new Chart(document.getElementById('occupancyChart'), {
+            type: 'bar',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Terisi',
+                    data: [],
+                    backgroundColor: 'rgba(255, 99, 132, 0.5)'
+                },
+                {
+                    label: 'Tersedia',
+                    data: [],
+                    backgroundColor: 'rgba(75, 192, 192, 0.5)'
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+
+        let hourlyChart = new Chart(document.getElementById('hourlyChart'), {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Jumlah Kendaraan',
+                    data: [],
+                    borderColor: 'rgb(75, 192, 192)',
+                    tension: 0.1
+                },
+                {
+                    label: 'Pendapatan (Rp)',
+                    data: [],
+                    borderColor: 'rgb(255, 99, 132)',
+                    tension: 0.1
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+
+        // Start periodic updates
+        setInterval(updateDeviceStatus, 60000); // Every minute
+        setInterval(updateCharts, 300000); // Every 5 minutes
+
+        // Initial update
+        updateDeviceStatus();
+        updateCharts();
+    </script>
+} 

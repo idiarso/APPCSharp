@@ -20,6 +20,7 @@ namespace ParkIRC.Data
         public DbSet<ParkingTicket> ParkingTickets { get; set; }
         public DbSet<Journal> Journals { get; set; }
         public DbSet<ParkingRateConfiguration> ParkingRates { get; set; }
+        public DbSet<ExitTicket> ExitTickets { get; set; }
 
         protected override void OnModelCreating(ModelBuilder builder)
         {
@@ -96,6 +97,25 @@ namespace ParkIRC.Data
                 entity.HasOne(e => e.Shift)
                     .WithMany()
                     .HasForeignKey(e => e.ShiftId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            builder.Entity<ExitTicket>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.TicketNumber).IsRequired();
+                entity.Property(e => e.ExitTicketNumber).IsRequired();
+                entity.Property(e => e.OriginalTicketNumber).IsRequired();
+                entity.Property(e => e.BarcodeData).IsRequired();
+                entity.Property(e => e.Cost).HasColumnType("decimal(18,2)");
+                entity.Property(e => e.ParkingCost).HasColumnType("decimal(18,2)");
+                entity.HasOne(e => e.ParkingTicket)
+                    .WithMany()
+                    .HasForeignKey(e => e.ParkingTicketId)
+                    .OnDelete(DeleteBehavior.Restrict);
+                entity.HasOne(e => e.Vehicle)
+                    .WithMany()
+                    .HasForeignKey(e => e.VehicleId)
                     .OnDelete(DeleteBehavior.Restrict);
             });
 

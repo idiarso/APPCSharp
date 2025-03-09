@@ -1,0 +1,56 @@
+@model ParkIRC.Models.ViewModels.DashboardViewModel
+
+<div class="row g-3" id="statistics">
+    <div class="col-xl-3 col-sm-6">
+        <div class="card dashboard-card bg-primary text-white h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-title mb-0">Total Vehicles</h6>
+                        <h3 class="mt-2 mb-0">@Model.TotalVehicles</h3>
+                    </div>
+                    <i class="fas fa-car card-icon"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-sm-6">
+        <div class="card dashboard-card bg-success text-white h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-title mb-0">Available Spaces</h6>
+                        <h3 class="mt-2 mb-0">@Model.AvailableSpaces</h3>
+                    </div>
+                    <i class="fas fa-check-circle card-icon"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-sm-6">
+        <div class="card dashboard-card bg-info text-white h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-title mb-0">Total Income</h6>
+                        <h3 class="mt-2 mb-0">@Model.TotalIncome.ToString("C0")</h3>
+                    </div>
+                    <i class="fas fa-money-bill-wave card-icon"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-sm-6">
+        <div class="card dashboard-card bg-warning text-white h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-title mb-0">Active Operators</h6>
+                        <h3 class="mt-2 mb-0">@Model.ActiveOperators</h3>
+                    </div>
+                    <i class="fas fa-users card-icon"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+</div> 

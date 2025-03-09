@@ -1,0 +1,32 @@
+@model ParkIRC.Models.Shift
+
+<div class="row g-3" id="shiftInfo">
+    @if (Model != null)
+    {
+        <div class="col-12">
+            <div class="card dashboard-card">
+                <div class="card-header">
+                    <h6 class="card-title mb-0">Current Shift</h6>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <p class="mb-1"><strong>Shift:</strong> @Model.Name</p>
+                            <p class="mb-1"><strong>Time:</strong> @Model.StartTime.ToString("HH:mm") - @Model.EndTime.ToString("HH:mm")</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="col-12">
+            <div class="card dashboard-card bg-light">
+                <div class="card-body">
+                    <p class="mb-0 text-center text-muted">No active shift at this time</p>
+                </div>
+            </div>
+        </div>
+    }
+</div> 

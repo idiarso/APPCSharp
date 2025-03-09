@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.SignalR;
 using System.Threading.Tasks;
 using ParkIRC.Models;
+using ParkIRC.Models.ViewModels;
 
 namespace ParkIRC.Hubs
 {

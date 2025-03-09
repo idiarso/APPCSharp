@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ParkIRC.Data;
 using ParkIRC.Models;
+using ParkIRC.Services.Interfaces;
 using System;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
@@ -51,13 +52,13 @@ namespace ParkIRC.Controllers
         {
             try
             {
-                bool isDetected = await _cameraService.IsVehicleDetected();
+                bool isDetected = await _cameraService.IsVehiclePresent();
                 if (!isDetected)
                 {
                     return Json(new { detected = false });
                 }
 
-                string? imagePath = await _cameraService.CaptureVehicleImage();
+                string? imagePath = await _cameraService.CaptureImage();
                 return Json(new { 
                     detected = true,
                     imagePath = imagePath
@@ -78,7 +79,7 @@ namespace ParkIRC.Controllers
             try
             {
                 // Capture vehicle image using IP camera
-                string? imagePath = await _cameraService.CaptureVehicleImage();
+                string? imagePath = await _cameraService.CaptureImage();
                 if (string.IsNullOrEmpty(imagePath))
                 {
                     return Json(new { success = false, message = "Gagal mengambil foto kendaraan" });
@@ -105,6 +106,7 @@ namespace ParkIRC.Controllers
                     VehicleType = vehicleType,
                     EntryTime = DateTime.Now,
                     EntryPhotoPath = imagePath,
+                    EntryCCTVPhotoPath = imagePath,
                     IsParked = true,
                     ParkingSpace = parkingSpace
                 };
@@ -146,7 +148,12 @@ namespace ParkIRC.Controllers
                 await _context.SaveChangesAsync();
 
                 // Print ticket
-                bool printSuccess = await _printerService.PrintTicket(ticket);
+                bool printSuccess = await _printerService.PrintEntryTicket(
+                    ticket.TicketNumber,
+                    vehicle.VehicleNumber,
+                    ticket.IssueTime.ToString("yyyy-MM-dd HH:mm:ss"),
+                    ticket.BarcodeData
+                );
                 if (!printSuccess)
                 {
                     _logger.LogWarning("Failed to print ticket {TicketNumber}", ticket.TicketNumber);
@@ -180,8 +187,9 @@ namespace ParkIRC.Controllers
 
         // POST: Gate/ProcessExit
         [HttpPost]
+        [Route("ProcessExit")]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> ProcessExit([FromForm] string ticketNumber, [FromForm] string base64Image)
+        public async Task<IActionResult> ProcessExit([FromForm] string ticketNumber)
         {
             try
             {
@@ -199,79 +207,281 @@ namespace ParkIRC.Controllers
                     return BadRequest(new { error = "Tiket sudah digunakan" });
                 }
 
-                // Save exit photo
-                string? exitPhotoPath = null;
-                if (!string.IsNullOrEmpty(base64Image))
-                {
-                    exitPhotoPath = await SaveBase64Image(base64Image, "exit_photos");
-                }
-
-                // Update vehicle status
+                // Get vehicle data
                 var vehicle = ticket.Vehicle;
                 if (vehicle == null)
                 {
-                    return BadRequest(new { error = "Vehicle data not found" });
+                    return BadRequest(new { error = "Data kendaraan tidak ditemukan" });
                 }
 
-                vehicle.IsParked = false;
-                vehicle.ExitTime = DateTime.Now;
-                vehicle.ExitPhotoPath = exitPhotoPath ?? string.Empty;
+                // Calculate duration and cost
+                var duration = DateTime.Now - vehicle.EntryTime;
+                var cost = CalculateParkingCost(duration.TotalMinutes, vehicle.VehicleType);
 
-                // Mark ticket as used
-                ticket.IsUsed = true;
-                ticket.ScanTime = DateTime.Now;
+                // Generate exit ticket number
+                string exitTicketNumber = GenerateExitTicketNumber();
+                
+                // Generate exit barcode
+                string exitBarcodeData = $"EXIT_{exitTicketNumber}_{DateTime.Now:yyyyMMddHHmmss}";
+                string exitBarcodeImagePath = await GenerateAndSaveQRCode(exitBarcodeData);
 
-                // Get current shift
-                var currentShift = await GetCurrentShiftAsync();
-                if (currentShift == null)
+                // Create exit ticket record
+                var exitTicket = new ExitTicket
                 {
-                    return BadRequest(new { error = "Tidak ada shift aktif saat ini" });
-                }
-
-                // Create journal entry
-                var journal = new Journal
-                {
-                    Action = "Check Out",
-                    Description = $"Vehicle {vehicle.VehicleNumber} checked out",
-                    Timestamp = DateTime.UtcNow,
-                    OperatorId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                    TicketNumber = ticketNumber,
+                    ExitTicketNumber = exitTicketNumber,
+                    OriginalTicketNumber = ticketNumber,
+                    Barcode = exitBarcodeData,
+                    BarcodeData = exitBarcodeData,
+                    BarcodeImagePath = exitBarcodeImagePath,
+                    ExitTime = DateTime.Now,
+                    IssueTime = DateTime.Now,
+                    ExpiryTime = DateTime.Now.AddMinutes(30), // Ticket valid for 30 minutes
+                    ParkingCost = cost,
+                    Cost = cost,
+                    Duration = duration,
+                    IsUsed = false,
+                    ValidUntil = DateTime.Now.AddMinutes(30),
+                    ParkingTicketId = ticket.Id,
+                    VehicleId = vehicle.Id
                 };
 
-                _context.Journals.Add(journal);
+                await _context.ExitTickets.AddAsync(exitTicket);
+
+                // Mark original ticket as processed
+                ticket.IsProcessed = true;
+                ticket.ProcessTime = DateTime.Now;
+
                 await _context.SaveChangesAsync();
 
-                // Create parking transaction
-                var transaction = await _context.ParkingTransactions
-                    .FirstOrDefaultAsync(t => t.VehicleId == vehicle.Id && t.Status == "Active");
-                if (transaction == null)
-                {
-                    return BadRequest(new { error = "Parking transaction not found" });
-                }
-
-                // Print receipt
-                bool printSuccess = await _printerService.PrintReceipt(transaction);
+                // Print exit ticket
+                bool printSuccess = await _printerService.PrintExitTicket(exitTicket, vehicle);
                 if (!printSuccess)
                 {
-                    _logger.LogWarning("Failed to print receipt for transaction {TransactionNumber}", transaction.TransactionNumber);
+                    _logger.LogWarning("Failed to print exit ticket {TicketNumber}", exitTicketNumber);
                 }
 
-                // Open the gate
-                await OpenGateAsync();
-
-                return Ok(new
-                {
-                    message = "Kendaraan berhasil keluar" + (!printSuccess ? " (Gagal mencetak struk)" : ""),
-                    vehicleNumber = vehicle.VehicleNumber,
-                    entryTime = vehicle.EntryTime,
-                    exitTime = vehicle.ExitTime,
-                    duration = (vehicle.ExitTime - vehicle.EntryTime)?.ToString(@"hh\:mm"),
+                return Json(new { 
+                    success = true, 
+                    message = "Tiket keluar berhasil diproses" + (!printSuccess ? " (Gagal mencetak tiket)" : ""),
+                    exitTicketNumber = exitTicket.ExitTicketNumber,
+                    cost = cost,
+                    duration = duration.TotalMinutes,
+                    barcodeImageUrl = $"/images/barcodes/{Path.GetFileName(exitBarcodeImagePath)}",
                     printStatus = printSuccess
                 });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { error = $"Terjadi kesalahan: {ex.Message}" });
+                _logger.LogError(ex, "Error processing exit ticket");
+                return Json(new { success = false, message = "Terjadi kesalahan: " + ex.Message });
             }
+        }
+
+        [HttpPost]
+        [Route("ValidateExitTicket")]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ValidateExitTicket([FromForm] string exitTicketNumber)
+        {
+            try
+            {
+                var exitTicket = await _context.ExitTickets
+                    .Include(t => t.Vehicle)
+                    .FirstOrDefaultAsync(t => t.ExitTicketNumber == exitTicketNumber);
+
+                if (exitTicket == null)
+                {
+                    return NotFound(new { success = false, message = "Tiket keluar tidak ditemukan" });
+                }
+
+                if (exitTicket.IsUsed || exitTicket.UseTime.HasValue)
+                {
+                    return BadRequest(new { success = false, message = "Tiket keluar sudah digunakan" });
+                }
+
+                if (DateTime.Now > exitTicket.ExpiryTime)
+                {
+                    return BadRequest(new { success = false, message = "Tiket keluar sudah kadaluarsa" });
+                }
+
+                // Mark exit ticket as used
+                exitTicket.IsUsed = true;
+                exitTicket.UseTime = DateTime.Now;
+
+                // Update vehicle status
+                var vehicle = exitTicket.Vehicle;
+                if (vehicle != null)
+                {
+                    vehicle.IsParked = false;
+                    vehicle.ExitTime = DateTime.Now;
+                }
+
+                await _context.SaveChangesAsync();
+
+                // Open exit gate
+                await OpenGateAsync();
+
+                return Json(new
+                {
+                    success = true,
+                    message = "Validasi berhasil, gate dibuka",
+                    vehicleNumber = vehicle?.VehicleNumber,
+                    exitTime = DateTime.Now
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error validating exit ticket");
+                return Json(new { success = false, message = "Terjadi kesalahan: " + ex.Message });
+            }
+        }
+
+        [HttpPost]
+        [Route("AutoEntry")]
+        public async Task<IActionResult> AutoEntry()
+        {
+            try
+            {
+                // 1. Deteksi kendaraan menggunakan kamera
+                bool isDetected = await _cameraService.IsVehicleDetected();
+                if (!isDetected)
+                {
+                    return Json(new { success = false, message = "Tidak ada kendaraan terdeteksi" });
+                }
+
+                // 2. Ambil foto kendaraan dari kedua kamera
+                string? mainImagePath = await _cameraService.CaptureVehicleImage();
+                string? cctvImagePath = await _cameraService.CaptureCCTVImage();
+
+                if (string.IsNullOrEmpty(mainImagePath))
+                {
+                    return Json(new { success = false, message = "Gagal mengambil foto kendaraan dari kamera utama" });
+                }
+
+                // 3. Generate nomor tiket dan barcode
+                string ticketNumber = GenerateTicketNumber();
+                string barcodeData = $"{ticketNumber}|{DateTime.Now:yyyyMMddHHmmss}";
+                string barcodeImagePath = await GenerateAndSaveQRCode(barcodeData);
+
+                if (string.IsNullOrEmpty(barcodeImagePath))
+                {
+                    return Json(new { success = false, message = "Gagal generate barcode" });
+                }
+
+                // 4. Dapatkan shift aktif
+                var currentShift = await GetCurrentShiftAsync();
+                if (currentShift == null)
+                {
+                    return Json(new { success = false, message = "Tidak ada shift aktif" });
+                }
+
+                // 5. Cari parking space yang tersedia
+                var parkingSpace = await FindOptimalParkingSpace("Unknown");
+                if (parkingSpace == null)
+                {
+                    return Json(new { success = false, message = "Tidak ada tempat parkir tersedia" });
+                }
+
+                // 6. Buat record kendaraan dengan kedua foto
+                var vehicle = new Vehicle
+                {
+                    VehicleNumber = "UNKNOWN",
+                    VehicleType = "Unknown",
+                    EntryTime = DateTime.Now,
+                    EntryPhotoPath = mainImagePath,
+                    EntryCCTVPhotoPath = cctvImagePath,
+                    IsParked = true,
+                    ParkingSpace = parkingSpace
+                };
+
+                // 7. Buat tiket parkir
+                var ticket = new ParkingTicket
+                {
+                    TicketNumber = ticketNumber,
+                    BarcodeData = barcodeData,
+                    BarcodeImagePath = barcodeImagePath,
+                    IssueTime = DateTime.Now,
+                    Vehicle = vehicle,
+                    OperatorId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value,
+                    ShiftId = currentShift.Id
+                };
+
+                // 8. Buat transaksi parkir
+                var transaction = new ParkingTransaction
+                {
+                    Vehicle = vehicle,
+                    ParkingSpace = parkingSpace,
+                    EntryTime = DateTime.Now,
+                    TransactionNumber = GenerateTransactionNumber(),
+                    Status = "Active"
+                };
+
+                // 9. Simpan ke database
+                await _context.Vehicles.AddAsync(vehicle);
+                await _context.ParkingTickets.AddAsync(ticket);
+                await _context.ParkingTransactions.AddAsync(transaction);
+                await _context.SaveChangesAsync();
+
+                // 10. Print tiket
+                bool printSuccess = await _printerService.PrintTicket(ticket);
+                
+                // 11. Buka gate
+                if (printSuccess)
+                {
+                    await OpenGateAsync();
+                }
+
+                // 12. Kirim response
+                return Json(new
+                {
+                    success = true,
+                    message = "Kendaraan berhasil masuk" + (!printSuccess ? " (Gagal mencetak tiket)" : ""),
+                    ticketNumber = ticket.TicketNumber,
+                    entryTime = vehicle.EntryTime,
+                    barcodeImageUrl = $"/images/barcodes/{Path.GetFileName(barcodeImagePath)}",
+                    printStatus = printSuccess,
+                    imagePath = mainImagePath,
+                    vehicleId = vehicle.Id // Untuk keperluan update data nanti
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in auto entry process");
+                return Json(new { success = false, message = "Terjadi kesalahan: " + ex.Message });
+            }
+        }
+
+        [HttpPost]
+        [Route("UpdateVehicleInfo")]
+        public async Task<IActionResult> UpdateVehicleInfo([FromBody] UpdateVehicleInfoModel model)
+        {
+            try
+            {
+                var vehicle = await _context.Vehicles.FindAsync(model.VehicleId);
+                if (vehicle == null)
+                {
+                    return NotFound(new { success = false, message = "Kendaraan tidak ditemukan" });
+                }
+
+                vehicle.VehicleNumber = model.VehicleNumber.ToUpper();
+                vehicle.VehicleType = model.VehicleType;
+                
+                await _context.SaveChangesAsync();
+
+                return Json(new { success = true, message = "Data kendaraan berhasil diupdate" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating vehicle info");
+                return Json(new { success = false, message = "Terjadi kesalahan: " + ex.Message });
+            }
+        }
+
+        public class UpdateVehicleInfoModel
+        {
+            public int VehicleId { get; set; }
+            public string VehicleNumber { get; set; } = string.Empty;
+            public string VehicleType { get; set; } = string.Empty;
         }
 
         private async Task<string> SaveBase64Image(string base64Image, string folder)
@@ -356,9 +566,32 @@ namespace ParkIRC.Controllers
             }
         }
 
-        private string GenerateJournalNumber()
+        private string GenerateExitTicketNumber()
         {
-            return $"JRN-{DateTime.Now:yyyyMMdd}-{Guid.NewGuid().ToString("N").Substring(0, 6)}";
+            return $"EXIT{DateTime.Now:yyyyMMddHHmmss}{new Random().Next(1000, 9999)}";
+        }
+
+        private decimal CalculateParkingCost(double durationMinutes, string vehicleType)
+        {
+            // Implement your parking cost calculation logic here
+            decimal baseRate = GetBaseRate(vehicleType);
+            int hours = (int)Math.Ceiling(durationMinutes / 60.0);
+            return baseRate * hours;
+        }
+
+        private decimal GetBaseRate(string vehicleType)
+        {
+            switch (vehicleType.ToUpper())
+            {
+                case "MOTORCYCLE":
+                    return 2000M;
+                case "CAR":
+                    return 5000M;
+                case "TRUCK":
+                    return 10000M;
+                default:
+                    return 5000M;
+            }
         }
 
         private async Task<Shift?> GetCurrentShiftAsync()
@@ -418,6 +651,51 @@ namespace ParkIRC.Controllers
             {
                 _logger.LogError(ex, "Error opening gate");
                 throw;
+            }
+        }
+
+        [HttpGet]
+        [Route("GetCCTVFrame")]
+        public async Task<IActionResult> GetCCTVFrame()
+        {
+            try
+            {
+                var frame = await _cameraService.GetCCTVFrame();
+                if (frame == null)
+                {
+                    return NotFound();
+                }
+                return File(frame, "image/jpeg");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting CCTV frame");
+                return StatusCode(500);
+            }
+        }
+
+        [HttpPost]
+        [Route("CaptureCCTV")]
+        public async Task<IActionResult> CaptureCCTV()
+        {
+            try
+            {
+                string? cctvImagePath = await _cameraService.CaptureCCTVImage();
+                if (string.IsNullOrEmpty(cctvImagePath))
+                {
+                    return Json(new { success = false, message = "Gagal mengambil foto dari CCTV" });
+                }
+
+                return Json(new { 
+                    success = true, 
+                    cctvImagePath = cctvImagePath,
+                    message = "Berhasil mengambil foto dari CCTV"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error capturing CCTV image");
+                return Json(new { success = false, message = "Terjadi kesalahan: " + ex.Message });
             }
         }
     }
