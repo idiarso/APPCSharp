@@ -588,8 +588,8 @@ namespace ParkIRC.Controllers
                 var dashboardData = await GetDashboardData();
                 // In a real implementation, you would use a library like EPPlus to create an Excel file
                 // For now, we'll return a CSV
-                var csv = "TotalSpaces,AvailableSpaces,DailyRevenue,WeeklyRevenue,MonthlyRevenue\n";
-                csv += $"{dashboardData.TotalSpaces},{dashboardData.AvailableSpaces},{dashboardData.DailyRevenue},{dashboardData.WeeklyRevenue},{dashboardData.MonthlyRevenue}";
+                var csv = "TotalVehicles,AvailableSpaces,TotalIncome,ActiveOperators\n";
+                csv += $"{dashboardData.TotalVehicles},{dashboardData.AvailableSpaces},{dashboardData.TotalIncome},{dashboardData.ActiveOperators}";
                 
                 return File(System.Text.Encoding.UTF8.GetBytes(csv), "text/csv", "dashboard-report.csv");
             }
