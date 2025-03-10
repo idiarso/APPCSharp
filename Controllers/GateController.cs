@@ -148,12 +148,7 @@ namespace ParkIRC.Controllers
                 await _context.SaveChangesAsync();
 
                 // Print ticket
-                bool printSuccess = await _printerService.PrintEntryTicket(
-                    ticket.TicketNumber,
-                    vehicle.VehicleNumber,
-                    ticket.IssueTime.ToString("yyyy-MM-dd HH:mm:ss"),
-                    ticket.BarcodeData
-                );
+                bool printSuccess = await _printerService.PrintTicket(ticket);
                 if (!printSuccess)
                 {
                     _logger.LogWarning("Failed to print ticket {TicketNumber}", ticket.TicketNumber);

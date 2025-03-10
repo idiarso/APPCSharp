@@ -4,19 +4,10 @@ using System.Drawing.Printing;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using ParkIRC.Models;
+using ParkIRC.Services.Interfaces;
 
 namespace ParkIRC.Services
 {
-    public interface IPrinterService
-    {
-        Task<bool> PrintTicket(ParkingTicket ticket);
-        Task<bool> PrintReceipt(ParkingTransaction transaction);
-        bool CheckPrinterStatus();
-        string GetDefaultPrinter();
-        List<string> GetAvailablePrinters();
-        Task<bool> PrintExitTicket(ExitTicket exitTicket, Vehicle vehicle);
-    }
-
     public class PrinterService : IPrinterService
     {
         private readonly ILogger<PrinterService> _logger;
@@ -24,6 +15,7 @@ namespace ParkIRC.Services
         private const int GENERIC_WRITE = 0x40000000;
         private const int OPEN_EXISTING = 3;
         private readonly PrintDocument _printDocument;
+        private readonly bool _isWindows;
 
         [DllImport("kernel32.dll", SetLastError = true)]
         static extern IntPtr CreateFile(string lpFileName, uint dwDesiredAccess,
@@ -33,12 +25,22 @@ namespace ParkIRC.Services
         public PrinterService(ILogger<PrinterService> logger)
         {
             _logger = logger;
+            _isWindows = OperatingSystem.IsWindows();
             _defaultPrinter = GetDefaultPrinter();
-            _printDocument = new PrintDocument();
+            if (_isWindows)
+            {
+                _printDocument = new PrintDocument();
+            }
         }
 
         public async Task<bool> PrintTicket(ParkingTicket ticket)
         {
+            if (!_isWindows)
+            {
+                _logger.LogWarning("Printing is only supported on Windows");
+                return false;
+            }
+
             try
             {
                 var pd = new PrintDocument();
@@ -90,6 +92,12 @@ namespace ParkIRC.Services
 
         public async Task<bool> PrintReceipt(ParkingTransaction transaction)
         {
+            if (!_isWindows)
+            {
+                _logger.LogWarning("Printing is only supported on Windows");
+                return false;
+            }
+
             try
             {
                 var pd = new PrintDocument();
@@ -130,6 +138,12 @@ namespace ParkIRC.Services
 
         public bool CheckPrinterStatus()
         {
+            if (!_isWindows)
+            {
+                _logger.LogWarning("Printer status check is only supported on Windows");
+                return false;
+            }
+
             try
             {
                 var handle = CreateFile($"\\\\.\\{_defaultPrinter}", GENERIC_WRITE, 0, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
@@ -148,6 +162,12 @@ namespace ParkIRC.Services
 
         public string GetDefaultPrinter()
         {
+            if (!_isWindows)
+            {
+                _logger.LogWarning("Getting default printer is only supported on Windows");
+                return string.Empty;
+            }
+
             try
             {
                 var ps = new PrinterSettings();
@@ -162,6 +182,12 @@ namespace ParkIRC.Services
 
         public List<string> GetAvailablePrinters()
         {
+            if (!_isWindows)
+            {
+                _logger.LogWarning("Getting available printers is only supported on Windows");
+                return new List<string>();
+            }
+
             try
             {
                 return PrinterSettings.InstalledPrinters.Cast<string>().ToList();
@@ -175,6 +201,12 @@ namespace ParkIRC.Services
 
         public async Task<bool> PrintExitTicket(ExitTicket exitTicket, Vehicle vehicle)
         {
+            if (!_isWindows)
+            {
+                _logger.LogWarning("Printing is only supported on Windows");
+                return false;
+            }
+
             try
             {
                 _printDocument.PrintPage += (sender, e) => PrintExitTicketHandler(sender, e, exitTicket, vehicle);

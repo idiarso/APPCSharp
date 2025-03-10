@@ -806,7 +806,7 @@ namespace ParkIRC.Controllers
             return new DashboardViewModel
             {
                 TotalVehicles = await _context.Vehicles.CountAsync(v => v.IsParked),
-                TotalIncome = await _context.ParkingTransactions.SumAsync(t => t.TotalAmount),
+                TotalIncome = await _context.ParkingTransactions.ToListAsync().ContinueWith(t => t.Result.Sum(x => x.TotalAmount)),
                 AvailableSpaces = await _context.ParkingSpaces.CountAsync(s => !s.IsOccupied),
                 ActiveOperators = await _context.Operators.CountAsync(o => o.IsActive),
                 CurrentShift = await _context.Shifts.FirstOrDefaultAsync(s => s.StartTime <= DateTime.Now && s.EndTime >= DateTime.Now),

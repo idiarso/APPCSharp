@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using ParkIRC.Hubs;
 using ParkIRC.Models;
 using ParkIRC.Services;
+using ParkIRC.Services.Interfaces;
 using ParkIRC.Middleware;
 using Microsoft.Extensions.Logging;
 using NLog;
